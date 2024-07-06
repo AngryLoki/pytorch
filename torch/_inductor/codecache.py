@@ -2081,17 +2081,7 @@ class CppCodeCache:
             fb_output_path = input_path[:-3] + "so"
             future: Optional[Future[Any]] = None
             lib = None
-            """
-             worker_fn = functools.partial(
-                _worker_compile_cpp,
-                lock_path,
-                input_path,
-                output_path,
-                cpp_compile_command(
-                    input=input_path, output=output_path, **compile_command
-                ),
-            )
-            """
+
             cpp_build_option = CppTorchCudaOptions(**compile_command)
             cpp_builder = CppBuilder(
                 name=output_name,
@@ -2101,7 +2091,7 @@ class CppCodeCache:
             )
 
             worker_fn = functools.partial(
-                _worker_compile_cpp_new,
+                _worker_compile_cpp,
                 lock_path,
                 cpp_builder,
                 input_path,
@@ -2139,7 +2129,7 @@ class CppCodeCache:
         return cls.load_async(source_code, cuda)()
 
 
-def _worker_compile_cpp_new(
+def _worker_compile_cpp(
     lock_path,
     cpp_builder: CppBuilder,
     fb_input_path: str,
@@ -2160,17 +2150,6 @@ def _worker_compile_cpp_new(
                 )
             else:
                 cpp_builder.build()
-
-
-def _worker_compile_cpp(lock_path, input_path, output_path, cmd):
-    """
-    TODO: remove the below code, after new cpp_builder stable.
-    """
-    from filelock import FileLock
-
-    with FileLock(lock_path, timeout=LOCK_TIMEOUT):
-        if not os.path.exists(output_path):
-            compile_file(input_path, output_path, shlex.split(cmd))
 
 
 # Customized Python binding for cpp kernels
