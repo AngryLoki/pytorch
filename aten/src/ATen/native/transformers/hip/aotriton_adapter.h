@@ -15,6 +15,10 @@
 #define AOTRITON_V2_API_FLASH_ATTN_H  // Suppress the include of deprecated flash/v2.h
 #endif
 
+#if AOTRITON_VARLEN_BITS_API
+#include <aotriton/flash.h>
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 // Common macros copied from cuda/mem_eff_attention/gemm_kernel_utils.h
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,6 +124,43 @@ inline aotriton::TensorView<0> mk_atomictensor(const int32_t* ptr)
   return aotriton::TensorView<0>(reinterpret_cast<intptr_t>(ptr),
                                  aotriton::DType::kInt32);
 }
+
+#if AOTRITON_VARLEN_BITS_API
+// AOTriton 0.14+ replaced the four-value VarlenType enum with a VarlenBits
+// bit-field struct: Q and K each pick how their length is given and where
+// their sequence starts, independently. Dense needs no bits (zero-init).
+constexpr aotriton::v3::flash::VarlenMode mk_varlen_mode(uint32_t length, uint32_t position)
+{
+  aotriton::v3::flash::VarlenMode mode{};
+  mode.stacked = aotriton::v3::flash::VarlenStacked::THD;
+  mode.length = length;
+  mode.position = position;
+  return mode;
+}
+
+// Packed varlen: one (N+1,) cumulative array per side gives that side both its
+// length (by differencing) and its start position.
+constexpr aotriton::v3::flash::VarlenBits mk_varlen_bits_packed()
+{
+  using aotriton::v3::flash::VarlenLength;
+  using aotriton::v3::flash::VarlenPosition;
+  const auto packed = mk_varlen_mode(VarlenLength::CUMULATIVE, VarlenPosition::REUSE);
+  return aotriton::v3::flash::VarlenBits{.qmode = packed, .kmode = packed};
+}
+
+// seqused_k against a packed KV cache: K reads its length from a (N,) array of
+// per-sequence counts (seqinfo_k0) and its start from a separate (N+1,)
+// cumulative array (seqinfo_k1). Q stays packed.
+constexpr aotriton::v3::flash::VarlenBits mk_varlen_bits_seqused_k()
+{
+  using aotriton::v3::flash::VarlenLength;
+  using aotriton::v3::flash::VarlenPosition;
+  return aotriton::v3::flash::VarlenBits{
+    .qmode = mk_varlen_mode(VarlenLength::CUMULATIVE, VarlenPosition::REUSE),
+    .kmode = mk_varlen_mode(VarlenLength::INDIVIDUAL, VarlenPosition::ARRAY),
+  };
+}
+#endif // AOTRITON_VARLEN_BITS_API
 
 #if AOTRITON_VERSION_CURRENT >= AOTRITON_VERSION_INT(0, 11)
 

@@ -1761,8 +1761,12 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt> _efficient_
     auto persistent_counter = mk_atomictensor(is_causal ? atomic_counter.data_ptr<int32_t>() : nullptr);
     hipError_t err; // TODO: Error handling
     using aotriton::v3::flash::CausalType;
-    using aotriton::v3::flash::VarlenType;
     using aotriton::v3::flash::WindowValue;
+#if AOTRITON_VARLEN_BITS_API
+    using sdp::aotriton_adapter::mk_varlen_bits_packed;
+#else
+    using aotriton::v3::flash::VarlenType;
+#endif
     aotriton::v3::flash::attn_fwd_params params;
     params.Q = mk_aotensor(q_t, "q");
     params.K = mk_aotensor(k_t, "k");
@@ -1791,6 +1795,13 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt> _efficient_
     if (bias.has_value()) {
       params.B = mk_aotensor(bias.value(), "bias");
     }
+#if AOTRITON_VARLEN_BITS_API
+    if (seqstart_q.has_value()) {
+      params.varlen_bits = mk_varlen_bits_packed();
+      params.seqinfo_q0 = mk_aotensor<1>(seqstart_q.value(), "seqinfo_q0");
+      params.seqinfo_k0 = mk_aotensor<1>(seqstart_k.value(), "seqinfo_k0");
+    }
+#else
     if (seqstart_q.has_value()) {
       params.varlen_type = VarlenType::CompactVarlen;
       params.cu_seqlens_q = mk_aotensor<1>(seqstart_q.value(), "cu_seqlens_q");
@@ -1798,6 +1809,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt> _efficient_
     } else {
       params.varlen_type = VarlenType::None;
     }
+#endif
     err = aotriton::v3::flash::attn_fwd(params,
                                         aotriton::v3::flash::attn_fwd_params::kVersion,
                                         stream);
